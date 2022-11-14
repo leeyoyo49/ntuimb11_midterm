@@ -4,216 +4,367 @@
 #include <algorithm>
 using namespace std;
 
+struct worker_and_its_shifts
+{
+    int number;
+    int last_night_shift_n_days_ago = 100;
+};
+
 struct shift_combination
 {
     int how_many_people_dealt = 0;
-    int day_off_better = 0;
     int decreased_weight = 0;
     int decreased_weight_that_round = 0;
     int night_shift_cnt = 0;
-    // 假設root為7, 那就只能加入7以後的shifts
-    int root;
-    deque<int> the_last_couple_shifts;
+    int last_added_shift = -1;
     vector<int> shift_cnt;
     vector<int> curr_fulfill_worker_demand;
 };
 
 bool compare_by_decreased_weight_that_round(const shift_combination &a, const shift_combination &b)
 {
-    return a.decreased_weight_that_round > b.decreased_weight_that_round;
+    if (a.decreased_weight_that_round > b.decreased_weight_that_round)
+        return true;
+    if (a.decreased_weight_that_round == b.decreased_weight_that_round)
+        return a.decreased_weight > b.decreased_weight;
+    return false;
 }
 
-deque<shift_combination> find_one_day_shift_combination_candidates(int day, int ni, int nj, int nk, int night_shifts[], int worker_demand[50][25], int shift[50][25])
+bool compare_by_decreased_weight(const shift_combination &a, const shift_combination &b)
 {
-    int day_off_threshold = ni / 7;
-    deque<shift_combination> return_val;
-    deque<shift_combination> temp_save_added_shift_comb;
-    vector<int> for_init_use;
-    for (int i = 0; i <= nk; i++)
-    {
-        for_init_use.push_back(0);
-    }
+    return a.decreased_weight > b.decreased_weight;
+}
 
-    // 先找班表組成一個tetris
-    int tetris_arr[26] = {0}, use_which_shift[32] = {0}, each_shift_fill_zero_cnt[32] = {0};
-    int tetris_yet = 1, shift_fill_zero_cnt = 0;
-    while (tetris_yet)
+shift_combination find_one_day_shift_combination_candidates(int day, int ni, int nj, int nk, int night_shifts[], int each_shift_howmany_one[], int worker_demand[50][25], int shift[50][25])
+{
+    // find tetris
+    int tetrisshift[50] = {0}, tetrisfillhole[25] = {0}, fillmaxhole, fillmaxholeloc, found_tetris = 1, anynightshift = 0, count_threshold = ni / 6, thisshiftfillhowmany, overlimit = 0;
+    vector<int> worker_demand_fill_by_tetris;
+    for (int i = 0; i <= 24; i++)
     {
-        int max = -1, max_pos = -1;
-        //
-        for (int i = 1; i <= nk; i++)
+        worker_demand_fill_by_tetris.push_back(0);
+    }
+    while (found_tetris)
+    {
+        fillmaxhole = 0;
+        fillmaxholeloc = -1;
+
+        for (int shiftcnt = 1; shiftcnt <= nk; shiftcnt++)
         {
-            shift_fill_zero_cnt = 0;
+            thisshiftfillhowmany = 0;
             for (int time = 1; time <= 24; time++)
             {
-                if (tetris_arr[time] || shift[i][time])
+                if ((tetrisfillhole[time] == 0) && shift[shiftcnt][time])
                 {
-                    if (tetris_arr[time] && shift[i][time])
+                    thisshiftfillhowmany++;
+                }
+            }
+            if (thisshiftfillhowmany > fillmaxhole)
+            {
+                fillmaxhole = thisshiftfillhowmany;
+                fillmaxholeloc = shiftcnt;
+            }
+            else if (thisshiftfillhowmany == fillmaxhole)
+            {
+                if ((night_shifts[shiftcnt] == 0) && (night_shifts[fillmaxholeloc] == 1))
+                {
+                    fillmaxhole = thisshiftfillhowmany;
+                    fillmaxholeloc = shiftcnt;
+                }
+                else if ((night_shifts[shiftcnt] == 1) && (night_shifts[fillmaxholeloc] == 0))
+                {
+                    continue;
+                }
+                else
+                {
+                    if (each_shift_howmany_one[shiftcnt] > each_shift_howmany_one[fillmaxholeloc])
                     {
-                        continue;
+                        fillmaxhole = thisshiftfillhowmany;
+                        fillmaxholeloc = shiftcnt;
                     }
-                    shift_fill_zero_cnt++;
                 }
             }
-            each_shift_fill_zero_cnt[i] = shift_fill_zero_cnt;
-            if (shift_fill_zero_cnt > max)
+        }
+        tetrisshift[fillmaxholeloc] = 1;
+        for (int time = 1; time <= 24; time++)
+        {
+            tetrisfillhole[time] += shift[fillmaxholeloc][time];
+        }
+        for (int time = 1; time <= 24; time++)
+        {
+            if (tetrisfillhole[time] == 0)
             {
-                max = shift_fill_zero_cnt;
-                max_pos = i;
+                continue;
+            }
+            if (time == 24)
+            {
+                found_tetris = 0;
             }
         }
-        use_which_shift[max_pos] = 1;
-        for (int time = 1; time <= 24; time++)
+    }
+    for (int shiftcnt = 1; shiftcnt <= nk; shiftcnt++)
+    {
+        if (night_shifts[shiftcnt] && tetrisshift[shiftcnt])
         {
-            tetris_arr[time] += shift[max_pos][time];
+            anynightshift = 1;
+            break;
         }
-        for (int time = 1; time <= 24; time++)
+    }
+    if (anynightshift == 1)
+    {
+        for (int count = 1; count <= count_threshold; count++)
         {
-            if (!tetris_arr[time])
+            for (int time = 1; time <= 24; time++)
             {
-                tetris_yet = 1;
+                int temp = tetrisfillhole[time];
+                if (((temp * count) > worker_demand[day][time]) || (count == count_threshold))
+                {
+                    overlimit = count;
+                    break;
+                }
+            }
+            if (overlimit != 0)
+            {
+                for (int time = 1; time <= 25; time++)
+                {
+                    worker_demand_fill_by_tetris[time] += tetrisfillhole[time] * overlimit;
+                }
                 break;
             }
-            else
-            {
-                if (time == 24)
-                {
-                    tetris_yet = 0;
-                }
-            }
         }
     }
-    // 把workerdemand一路扣tetris扣到上限
-    int stop = 1, count = 0;
-    int tetris_fill[26] = {0};
-    shift_combination the_first_batch;
-    while (stop)
+    else
     {
-        count++;
-        for (int time = 1; time <= 24; time++)
+        for (int count = 1; count <= count_threshold; count++)
         {
-            tetris_fill[time] += tetris_arr[time];
-            if (tetris_fill[time] > worker_demand[day][time])
+            for (int time = 1; time <= 24; time++)
             {
-                stop = 0;
-                count--;
-                for (int i = 1; i <= time; i++)
+                if (((tetrisfillhole[time] * count) > worker_demand[day][time]))
                 {
-                    tetris_fill[i] -= tetris_arr[i];
+                    overlimit = count;
+                    break;
                 }
-                break;
             }
-        }
-    }
-
-    // 東西丟到first batch裏面
-    the_first_batch.how_many_people_dealt = count;
-    for (int i = 1; i <= 24; i++)
-    {
-        the_first_batch.curr_fulfill_worker_demand.push_back(tetris_fill[i]);
-    }
-
-    the_first_batch.shift_cnt.push_back(0);
-    for (int i = 1; i <= nk; i++)
-    {
-        the_first_batch.shift_cnt.push_back(use_which_shift[i] * count);
-    }
-
-    return_val.push_back(the_first_batch);
-
-    // main computation
-    for (int curr_worker_dealt = count; curr_worker_dealt <= ni; curr_worker_dealt++)
-    {
-        // pop every shift passed last round and add shift 1~nk into curr_dealing_shift_comb
-        while (!return_val.empty())
-        {
-            shift_combination curr_dealing_shift_comb = return_val.front();
-            return_val.pop_front();
-
-            for (int add_shift_num = curr_dealing_shift_comb.root; add_shift_num <= nk; add_shift_num++)
+            if (overlimit != 0)
             {
-                shift_combination for_adding_shift_use = curr_dealing_shift_comb;
-                for_adding_shift_use.how_many_people_dealt++;
-                for_adding_shift_use.shift_cnt[add_shift_num]++;
-                int reduced_demand_amount = 0;
                 for (int time = 1; time <= 24; time++)
                 {
-                    for_adding_shift_use.curr_fulfill_worker_demand[time] += shift[add_shift_num][time];
-                    if ((worker_demand[day][time] >= for_adding_shift_use.curr_fulfill_worker_demand[time]) && shift[add_shift_num][time])
-                    {
-                        reduced_demand_amount++;
-                    }
+                    worker_demand_fill_by_tetris[time] += tetrisfillhole[time] * overlimit;
                 }
-                if (night_shifts[add_shift_num])
+                break;
+            }
+        }
+    }
+    // find tetris end
+
+    shift_combination initshift;
+    for (int i = 0; i <= nk; i++)
+    {
+        initshift.shift_cnt.push_back(tetrisshift[i] * overlimit);
+        if (tetrisshift[i] >= 1)
+        {
+            initshift.how_many_people_dealt += tetrisshift[i];
+        }
+        if (night_shifts[i] && tetrisshift[i])
+        {
+            initshift.night_shift_cnt++;
+        }
+    }
+    for (int i = 0; i <= 24; i++)
+    {
+        initshift.curr_fulfill_worker_demand.push_back(tetrisfillhole[i] * overlimit);
+        initshift.decreased_weight += tetrisfillhole[i] * overlimit;
+    }
+    initshift.how_many_people_dealt *= overlimit;
+    initshift.night_shift_cnt *= overlimit;
+
+    int minus_tetris_time = overlimit / 2;
+    deque<shift_combination> all_shift_candidates;
+    deque<shift_combination> save_add_everyshifts;
+    all_shift_candidates.push_back(initshift);
+    // find best shift
+    int last_check = -1;
+    for (int workercnt = initshift.how_many_people_dealt; workercnt <= ni; workercnt++)
+    {
+        while (!all_shift_candidates.empty())
+        {
+            initshift = all_shift_candidates.front();
+            all_shift_candidates.pop_front();
+            for (int shiftcnt = 1; shiftcnt <= nk; shiftcnt++)
+            {
+                int demand_decreased = 0;
+                shift_combination for_shift_adding = initshift;
+                for (int time = 1; time <= 24; time++)
                 {
-                    for_adding_shift_use.night_shift_cnt++;
-                    int halfni = ni / 2;
-                    if (for_adding_shift_use.night_shift_cnt > halfni)
+                    if (((worker_demand[day][time] - for_shift_adding.curr_fulfill_worker_demand[time]) > 0) && shift[shiftcnt][time])
+                    {
+                        demand_decreased++;
+                    }
+                    for_shift_adding.curr_fulfill_worker_demand[time] += shift[shiftcnt][time];
+                }
+                for_shift_adding.how_many_people_dealt++;
+                for_shift_adding.decreased_weight_that_round = demand_decreased;
+                for_shift_adding.shift_cnt[shiftcnt]++;
+                for_shift_adding.decreased_weight += demand_decreased;
+                for_shift_adding.last_added_shift = shiftcnt;
+                // check if night shift
+                if (night_shifts[shiftcnt] == 1)
+                {
+                    for_shift_adding.night_shift_cnt++;
+                    if (for_shift_adding.night_shift_cnt >= count_threshold)
                     {
                         continue;
                     }
                 }
-
-                if (ni - for_adding_shift_use.how_many_people_dealt < 10)
-                {
-                    for_adding_shift_use.the_last_couple_shifts.push_back(add_shift_num);
-                }
-
-                for_adding_shift_use.decreased_weight += reduced_demand_amount;
-                for_adding_shift_use.decreased_weight_that_round = reduced_demand_amount;
-                temp_save_added_shift_comb.push_back(for_adding_shift_use);
+                save_add_everyshifts.push_back(for_shift_adding);
             }
         }
-
-        // find top 10% decreased most worker demand, if same as 10%, go to nxt round also
-        sort(temp_save_added_shift_comb.begin(), temp_save_added_shift_comb.end(), compare_by_decreased_weight_that_round);
-        int threshold_loc = temp_save_added_shift_comb.size() / 10;
-        if (threshold_loc > 50)
+        sort(save_add_everyshifts.begin(), save_add_everyshifts.end(), compare_by_decreased_weight_that_round);
+        // 取前幾個啦qqqqq
+        for (int i = 0; i < 10; i++)
         {
-            int push_who = threshold_loc / 10;
-            for (int i = 0; i < 11; i++)
+            all_shift_candidates.push_back(save_add_everyshifts.front());
+            save_add_everyshifts.pop_front();
+            if (save_add_everyshifts.empty())
             {
-                return_val.push_back(temp_save_added_shift_comb[push_who * i]);
+                break;
             }
         }
-        else
+        save_add_everyshifts.clear();
+        // cout << all_shift_candidates.size() << endl;
+        // 每個都拔掉看看
+        if (workercnt == ni)
         {
-            int threshold = temp_save_added_shift_comb[threshold_loc].decreased_weight_that_round;
-            for (auto candidate_passed : temp_save_added_shift_comb)
+            for (int shiftcnt = 1; shiftcnt <= nk; shiftcnt++)
             {
-                if (candidate_passed.decreased_weight_that_round >= threshold)
+                if (all_shift_candidates.front().shift_cnt[shiftcnt] > 0)
                 {
-                    return_val.push_back(candidate_passed);
+                    // 該扣得扣一扣
+                    int shift_gone_weight_gone = 0;
+                    all_shift_candidates.front().shift_cnt[shiftcnt]--;
+                    // cout << shiftcnt << ' ' << all_shift_candidates.front().shift_cnt[shiftcnt]  << 'a';
+
+                    for (int time = 1; time <= 24; time++)
+                    {
+                        if (shift[shiftcnt][time])
+                        {
+                            all_shift_candidates.front().curr_fulfill_worker_demand[time]--;
+                            if (all_shift_candidates.front().curr_fulfill_worker_demand[time] < worker_demand[day][time])
+                            {
+                                all_shift_candidates.front().decreased_weight--;
+                                shift_gone_weight_gone++;
+                            }
+                        }
+                    }
+                    if (night_shifts[shiftcnt])
+                    {
+                        all_shift_candidates.front().night_shift_cnt--;
+                    }
+                    int finish_whole_thing = 0;
+                    // 所有shift塞一遍
+                    for (int inshiftcnt = 1; inshiftcnt <= nk; inshiftcnt++)
+                    {
+                        finish_whole_thing++;
+                        if (night_shifts[inshiftcnt] && (all_shift_candidates.front().night_shift_cnt >= count_threshold))
+                        {
+                            continue;
+                        }
+                        if (inshiftcnt == shiftcnt)
+                        {
+                            continue;
+                        }
+
+                        int inshiftweight = 0;
+
+                        for (int time = 1; time <= 24; time++)
+                        {
+                            if ((all_shift_candidates.front().curr_fulfill_worker_demand[time] < worker_demand[day][time]) && shift[inshiftcnt][time])
+                            {
+                                inshiftweight++;
+                            }
+                        }
+                        if (inshiftweight > shift_gone_weight_gone)
+                        {
+                            all_shift_candidates.front().shift_cnt[inshiftcnt]++;
+                            all_shift_candidates.front().decreased_weight += inshiftweight;
+                            for (int time = 1; time <= 24; time++)
+                            {
+                                all_shift_candidates.front().curr_fulfill_worker_demand[time] += shift[inshiftcnt][time];
+                            }
+                            if (night_shifts[inshiftcnt])
+                            {
+                                all_shift_candidates.front().night_shift_cnt++;
+                            }
+                            shiftcnt = 1;
+                            break;
+                        }
+                    }
+                    // 通過就全部塞回去
+                    if (finish_whole_thing == nk)
+                    {
+                        // cout << "aaaaaa";
+                        all_shift_candidates.front().shift_cnt[shiftcnt]++;
+                        for (int time = 1; time <= 24; time++)
+                        {
+                            if (shift[shiftcnt][time])
+                            {
+                                all_shift_candidates.front().curr_fulfill_worker_demand[time]++;
+                                if (all_shift_candidates.front().curr_fulfill_worker_demand[time] <= worker_demand[day][time])
+                                {
+                                    all_shift_candidates.front().decreased_weight++;
+                                }
+                            }
+                        }
+                        if (night_shifts[shiftcnt])
+                        {
+                            all_shift_candidates.front().night_shift_cnt++;
+                        }
+                    }
                 }
+                // for(int i = 1; i <= nk; i++)
+                // {
+                //     cout << all_shift_candidates.front().shift_cnt[i] << ' ';
+                // }
+                // cout << endl;
             }
         }
-
-        temp_save_added_shift_comb.clear();
-        cout << return_val.size() << ' ' << curr_worker_dealt << endl;
     }
-    return return_val;
+    // cout << endl;
+
+    return all_shift_candidates.front();
 }
 
 int main()
 {
     // 員工數, 幾天, 幾種班表, 至少休息幾天, 未滿足休假需求權重, 超額夜班權重, 幾個放假需求, 缺幾個人
     int ni, nj, nk, l, w1, w2, r, lack_of_worker = 0;
-    int shift[50][25], workerdemand[50][25], workernum[2000], dayoff[2000], ans[50][25], night_shifts[50] = {0};
-
+    int shift[50][25], workerdemand[50][25], workernum[2000], dayoff[2000], night_shifts[50] = {0}, ans[102][102], each_shift_howmany_one[50] = {0};
     // input
     cin >> ni >> nj >> nk >> l >> w1 >> w2 >> r;
+    for (int i = 0; i <= nj; i++)
+    {
+        for (int j = 0; j <= ni; j++)
+        {
+            ans[j][i] = -1;
+        }
+    }
     // 輸入班表 19~24是夜班
     for (int i = 1; i <= nk; i++)
     {
         for (int j = 1; j <= 24; j++)
         {
             cin >> shift[i][j];
+            if (shift[i][j] == 1)
+            {
+                each_shift_howmany_one[i]++;
+            }
             if ((19 < j) && (shift[i][j]))
             {
                 night_shifts[i] = 1;
             }
         }
     }
+
     for (int i = 1; i <= 24; i++)
     {
         cin >> shift[0][i];
@@ -236,28 +387,208 @@ int main()
         cin >> dayoff[i];
     }
 
-    deque<shift_combination> one_day_all_shift_combination_candidates;
-    int day = 1;
-    one_day_all_shift_combination_candidates = find_one_day_shift_combination_candidates(day, ni, nj, nk, night_shifts, workerdemand, shift);
+    shift_combination todayshift;
+    deque<shift_combination> whole_month_shift_candidates;
 
-    // 看一下輸出
-    for (auto i : one_day_all_shift_combination_candidates)
+    // get candidates
+    for (int day = 1; day <= nj; day++)
     {
-        for (auto j : i.shift_cnt)
-        {
-            cout << j << ' ';
-        }
-        cout << endl;
-        for (auto j : i.curr_fulfill_worker_demand)
-        {
-            cout << j << ' ';
-        }
-        cout << endl;
-        for (auto j : i.the_last_couple_shifts)
-        {
-            cout << j << ' ';
-        }
-        cout << 'n' << i.night_shift_cnt;
-        cout << endl << endl;
+        todayshift = find_one_day_shift_combination_candidates(day, ni, nj, nk, night_shifts, each_shift_howmany_one, workerdemand, shift);
+        todayshift.how_many_people_dealt = ni;
+        whole_month_shift_candidates.push_back(todayshift);
     }
-}
+
+    // for (auto i : whole_month_shift_candidates)
+    // {
+    //     for (auto j : i.shift_cnt)
+    //     {
+    //         cout << j << ' ';
+    //     }
+    //     cout << i.decreased_weight << endl;
+    // }
+
+    deque <worker_and_its_shifts> all_workers;
+    for(int i = 0; i <= ni; i++)
+    {
+        worker_and_its_shifts temp;
+        temp.number = i;
+        all_workers.push_back(temp);
+    }
+    // 讓他們都放假
+
+    for (int dayoffworker = 0; dayoffworker < r; dayoffworker++)
+    {
+        int whichday = dayoff[dayoffworker], whichguy = workernum[dayoffworker];
+        // cout << whichday << ' ' << whichguy << endl ;
+        int smallest_weight = 100000, smallest_weight_shift = -1;
+        for (int shiftcnt = 1; shiftcnt <= nk; shiftcnt++)
+        {
+            int temp_save_weight = 0;
+            for (int time = 1; time <= 24; time++)
+            {
+                if (shift[shiftcnt][time])
+                {
+                    if (whole_month_shift_candidates[whichday].curr_fulfill_worker_demand[time] <= workerdemand[whichday][time])
+                    {
+                        temp_save_weight++;
+                    }
+                }
+            }
+            if (temp_save_weight < smallest_weight)
+            {
+                smallest_weight = temp_save_weight;
+                smallest_weight_shift = shiftcnt;
+            }
+            if (temp_save_weight == smallest_weight)
+            {
+                if ((night_shifts[shiftcnt] == 1) && (night_shifts[smallest_weight_shift] == 0))
+                {
+                    smallest_weight_shift = shiftcnt;
+                }
+            }
+        }
+        if(smallest_weight > w1)
+        {
+            continue;
+        }
+
+        ans[whichguy][whichday] = 0;
+        whole_month_shift_candidates[whichday].shift_cnt[smallest_weight_shift]--;
+        whole_month_shift_candidates[whichday].decreased_weight -= smallest_weight;
+        whole_month_shift_candidates[whichday].how_many_people_dealt--;
+        if (night_shifts[smallest_weight_shift])
+        {
+            whole_month_shift_candidates[whichday].night_shift_cnt--;
+        }
+        for (int time = 1; time <= 24; time++)
+        {
+            whole_month_shift_candidates[whichday].curr_fulfill_worker_demand[time] -= shift[smallest_weight_shift][time];
+        }
+    }
+
+    // 排排夜班
+    for (int day = 1; day <= nj; day++)
+    {
+        for (int worker = 1; worker <= ni; worker++)
+        {
+            all_workers[worker].last_night_shift_n_days_ago ++;
+            if (ans[worker][day] != -1)
+            {
+                continue;
+            }
+            if (whole_month_shift_candidates[day].night_shift_cnt == 0)
+            {
+                break;
+            }
+            if( all_workers[worker].last_night_shift_n_days_ago >= 7)
+            {
+                for(int find_night_shift_avai = 1; find_night_shift_avai <= nk; find_night_shift_avai++)
+                {
+                    if(night_shifts[find_night_shift_avai] == 1)
+                    {
+                        ans[worker][day] = find_night_shift_avai;
+                        whole_month_shift_candidates[day].night_shift_cnt --;
+                        whole_month_shift_candidates[day].shift_cnt[find_night_shift_avai] --;
+                        whole_month_shift_candidates[day].how_many_people_dealt--;
+                        all_workers[worker].last_night_shift_n_days_ago = 0;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 剩下的班塞一塞
+    for(int day = 1; day <= nj; day ++)
+    {
+        for(int worker = 1; worker <= ni; worker++)
+        {
+            if(ans[worker][day] == -1)
+            {
+                for(int shift_avai = 1; shift_avai <= nk; shift_avai++)
+                {
+                    if(whole_month_shift_candidates[day].shift_cnt[shift_avai])
+                    {
+                        ans[worker][day] = shift_avai;
+                        whole_month_shift_candidates[day].shift_cnt[shift_avai] --;
+                        whole_month_shift_candidates[day].how_many_people_dealt--;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 假設夜班沒排完
+    for(int day = 1; day <= nj; day ++)
+    {    
+        // 把無法使用的夜班從總共全中扣除
+        for(int i = 0; i < whole_month_shift_candidates[day].how_many_people_dealt; i++)
+        {
+            for(int currshift = 1; currshift <= nk; currshift ++)
+            {
+                if(night_shifts[currshift] && whole_month_shift_candidates[day].shift_cnt[currshift])
+                {
+                    for(int time = 1; time <= 24; time ++)
+                    {
+                        whole_month_shift_candidates[day].curr_fulfill_worker_demand[time] -= shift[currshift][time];
+                        whole_month_shift_candidates[day].shift_cnt[currshift] --;
+                    }
+                }
+            }
+        }    
+        // 塞新的
+        while(whole_month_shift_candidates[day].how_many_people_dealt--)
+        {
+            for(int worker = 1; worker <= ni; worker ++)
+            {
+                if(ans[worker][day] == -1)
+                {
+                    int max_weight = -1, max_weight_loc = -1, temp_weight_save = 0;
+                    for(int currshift = 1; currshift <= nk; currshift ++)
+                    {
+                        temp_weight_save = 0;
+                        if(night_shifts[currshift])
+                        {
+                            continue;
+                        }
+                        for(int time = 1; time <= 24; time ++)
+                        {
+                            if(shift[currshift][time])
+                            {
+                                if(whole_month_shift_candidates[day].curr_fulfill_worker_demand[time] < workerdemand[day][time])
+                                {
+                                    temp_weight_save ++;
+                                }
+                            }
+                        }   
+                        if(temp_weight_save > max_weight)
+                        {
+                            temp_weight_save = max_weight;
+                            max_weight_loc = currshift;
+                        }
+                    }
+                    ans[worker][day] = max_weight_loc;
+                }
+            }
+        }
+    }
+    
+
+    // 最後輸出
+    for (int worker = 1; worker <= ni; worker++)
+    {
+        for (int day = 1; day < nj; day++)
+        {
+            // if((ans[worker][day] == -1) || (ans[worker][day] > nk))
+            // {
+            //     cout << 1;
+            // }
+            // else
+            // {
+            cout << ans[worker][day] << ',';
+            // }
+        }
+        cout << ans[worker][nj] << '\n';
+    }
+}    
